@@ -46,6 +46,7 @@ criterion = nn.BCELoss()
 mse_loss = nn.MSELoss()
 
 epochs = 10000
+per_iter = epochs // 10
 batch_size = 128
 
 for epoch in range(epochs):
@@ -79,18 +80,18 @@ for epoch in range(epochs):
     ae_loss.backward()
     ae_optimizer.step()
 
-    if epoch % 100 == 0:
+    if epoch % per_iter == 0:
         print(f"Epoch [{epoch}/{epochs}], D Loss: {d_loss.item():.4f}, G Loss: {g_loss.item():.4f}, AE Loss: {ae_loss.item():.4f}")
 
-with torch.no_grad():
-    z = torch.randn(10, latent_dim).to(device)
-    generated_data = generator(z).cpu().numpy()
+        with torch.no_grad():
+            z = torch.randn(10, latent_dim).to(device)
+            generated_data = generator(z).cpu().numpy()
 
-for i in range(3):
-    plt.plot(generated_data[i], label=f'Generated Sample {i+1}')
-plt.title("Generated Sine Waves with Noise")
-plt.xlabel("Time Step")
-plt.ylabel("Value")
-plt.legend()
-plt.savefig("outputs/generated.png")
-plt.close()
+            for i in range(5):
+                plt.plot(generated_data[i], label=f'Generated Sample {i+1}')
+            plt.title("Generated Sine Waves with Noise")
+            plt.xlabel("Time Step")
+            plt.ylabel("Value")
+            plt.legend()
+            plt.savefig(f"outputs/generated_{epoch}.png")
+            plt.close()
