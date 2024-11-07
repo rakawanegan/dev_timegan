@@ -45,7 +45,7 @@ ae_optimizer = optim.Adam(autoencoder.parameters(), lr=0.0001)
 criterion = nn.BCELoss()
 mse_loss = nn.MSELoss()
 
-epochs = 1000
+epochs = 10000
 batch_size = 128
 
 for epoch in range(epochs):
@@ -92,4 +92,5 @@ plt.title("Generated Sine Waves with Noise")
 plt.xlabel("Time Step")
 plt.ylabel("Value")
 plt.legend()
-plt.show()
+plt.savefig("outputs/generated.png")
+plt.close()
