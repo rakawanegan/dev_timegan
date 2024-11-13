@@ -3,26 +3,74 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
+from scipy import signal
+from scipy.integrate import solve_ivp
 
 from src.model import Generator, Discriminator, Autoencoder
 
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# 1. 秩序を持ったデータの生成 (正弦波にノイズを加えたデータ)
-def generate_sine_data_with_missing(seq_len, num_samples, missing_ratio=0.1):
-    t = np.linspace(0, 100, seq_len)
-    data = []
-    mask = []
+# データ生成の関数
+def generate_data_with_missing(seq_len, num_samples, func, noise_level, func_params={}, missing_ratio=0.1):
+    data = list()
+    mask = list()
+
     for _ in range(num_samples):
-        amplitude = np.random.uniform(0.8, 1.2)
-        frequency = np.random.uniform(0.8, 1.2)
-        noise = np.random.normal(0, 0.05, seq_len)
-        sine_wave = amplitude * np.sin(frequency * t) + noise
-        mask_wave = np.random.binomial(1, 1 - missing_ratio, seq_len)  # 欠損マスク
-        sine_wave[mask_wave == 0] = np.nan  # 欠損値を挿入
-        data.append(sine_wave)
+        # 関数とパラメータでデータを生成
+        values = func(seq_len)
+        
+        # ノイズの追加
+        noise = np.random.normal(0, noise_level, seq_len)
+        noisy_values = values + noise
+        
+        # 欠損の追加
+        missing_length = int(missing_ratio * seq_len)
+        start_index = np.random.randint(0, seq_len - missing_length + 1)
+        noisy_values[start_index:start_index + missing_length] = np.nan
+        
+        # マスク生成
+        mask_wave = (~np.isnan(noisy_values)).astype(int)
+        data.append(noisy_values)
         mask.append(mask_wave)
+
     return np.array(data), np.array(mask)
+
+# 正弦波関数の生成関数
+def sine_wave(seq_len, amplitude=1.0, frequency=1.0):
+    t = np.linspace(0, 100, seq_len)
+    return amplitude * np.sin(frequency * t)
+
+# 三角波の生成関数
+def triangle_wave(seq_len, amplitude=1.0, frequency=1.0):
+    t = np.linspace(0, 1, seq_len)
+    return amplitude * signal.sawtooth(2 * np.pi * frequency * t, 0.5)
+
+# ランダムウォークの生成関数
+def random_walk(seq_len, start=0, step_std=1.0):
+    steps = np.random.normal(0, step_std, seq_len)
+    return np.cumsum(steps) + start
+
+# 減衰正弦波の生成関数
+def damped_sine_wave(seq_len, amplitude=1.0, frequency=1.0, damping_factor=0.1):
+    t = np.linspace(0, 10, seq_len)
+    return amplitude * np.exp(-damping_factor * t) * np.sin(2 * np.pi * frequency * t)
+
+# ローレンツアトラクタの生成関数
+def lorenz_attractor(seq_len, sigma=10, beta=8/3, rho=28):
+    def lorenz(t, state):
+        x, y, z = state
+        dxdt = sigma * (y - x)
+        dydt = x * (rho - z) - y
+        dzdt = x * y - beta * z
+        return [dxdt, dydt, dzdt]
+
+    t_span = [0, 1]  # 時間範囲
+    t_eval = np.linspace(t_span[0], t_span[1], seq_len)
+    initial_state = [1.0, 1.0, 1.0]
+    solution = solve_ivp(lorenz, t_span, initial_state, t_eval=t_eval)
+    
+    return solution.y[0]
 
 # 欠損データの可視化関数
 def plot_missing_data(data, mask, completed_data=None, title="Data with Missing Values"):
@@ -32,12 +80,12 @@ def plot_missing_data(data, mask, completed_data=None, title="Data with Missing 
     plt.plot(data, label="Original Data", color="lightblue", linestyle="-")
     
     # 観測データのプロット（オレンジ色）
-    observed_data = np.where(mask == 1, data, np.nan)
-    plt.plot(observed_data, 'o', label="Observed Data", color='orange', markersize=3)
+    # observed_data = np.where(mask == 1, data, np.nan)
+    # plt.plot(observed_data, 'o', label="Observed Data", color='orange', markersize=3)
     
     # 欠損箇所のプロット（赤色の×）
     missing_points = np.where(mask == 0, 0, np.nan)
-    plt.plot(missing_points, 'x', label="Missing Points", color='red')
+    plt.plot(missing_points, 's', label="Missing Points", color='red')
     
     # 補完データがあれば、補完後のデータをプロット（緑色の線）
     if completed_data is not None:
@@ -52,7 +100,9 @@ def plot_missing_data(data, mask, completed_data=None, title="Data with Missing 
     plt.close()
 
 # 2. 欠損値補完のトレーニング
-def train_missing_completion(generator, discriminator, autoencoder, data, mask, epochs=10000, batch_size=128, latent_dim=10, per_iter=1000):
+def train_missing_completion(
+        generator, discriminator, autoencoder, data, mask, epochs=10000, batch_size=128, latent_dim=10, per_iter=1000
+    ):
     g_optimizer = optim.Adam(generator.parameters(), lr=0.0001)
     d_optimizer = optim.Adam(discriminator.parameters(), lr=0.0001)
     ae_optimizer = optim.Adam(autoencoder.parameters(), lr=0.0001)
@@ -124,14 +174,24 @@ def main():
     num_samples = 1000
     latent_dim = 10
     hidden_dim = 64
-    num_layers = 5
-    epochs = 10000
+    epochs = 1000
     batch_size = 128
     per_iter = epochs // 10
-    missing_ratio = 0.1  # 欠損率10%
+    missing_ratio = 0.1
+    noise_level = 0.01
+    simulation_wave = [
+        # sine_wave,
+        # triangle_wave,
+        # random_walk,
+        # damped_sine_wave,
+        lorenz_attractor,
+    ][0]
 
     # データ生成と欠損マスク生成
-    data, mask = generate_sine_data_with_missing(seq_len, num_samples, missing_ratio)
+    data, mask = generate_data_with_missing(
+        seq_len, num_samples, simulation_wave, noise_level,
+        missing_ratio=missing_ratio,
+    )
     original_data = data.copy()
 
     generator = Generator(latent_dim=latent_dim, hidden_dim=hidden_dim, seq_len=seq_len).to(device)
@@ -151,8 +211,8 @@ def main():
     )
 
     torch.save(
-        generator.state_dict(),
-        "outputs/generator.pth",
+        autoencoder.state_dict(),
+        "outputs/autoencoder.pth",
     )
 
 if __name__ == "__main__":
